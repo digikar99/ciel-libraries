@@ -1,0 +1,137 @@
+name: Archive CIEL libraries
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * *'   # daily at 04:00 UTC
+
+env:
+  LISP: sbcl
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - OS: ubuntu-latest
+            shell: bash
+
+    runs-on: ${{ matrix.OS }}
+
+    env:
+      OS: ${{ matrix.OS }}
+
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+
+    steps:
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y inotify-tools libzstd-dev zlib1g-dev build-essential atool
+
+      - name: Install SBCL and Quicklisp (lisp-travis-lite)
+        run: |
+          echo "ARCH=$(uname -m)" >> "${GITHUB_ENV}"
+          bash --version
+          bash <(curl -s https://raw.githubusercontent.com/digikar99/lisp-travis-lite/master/run.sh)
+
+      - name: Sanity-check the toolchain
+        run: |
+          which cl && cl --eval '(print (lisp-implementation-version))' --quit
+
+      - name: Add the Ultralisp distribution
+        run: cl --eval '(ql-dist:install-dist "http://dist.ultralisp.org/" :prompt nil)' --quit
+
+      - name: Record dist versions
+        id: dist_versions
+        run: |
+          ## This can't be any simpler because cl does not support --noinform option
+          cl --eval '(with-open-file (s "dist-versions.txt"
+                                        :direction :output
+                                        :if-exists :supersede)
+                       (format s "~a~%~a~%"
+                         (ql:dist-version "ultralisp")
+                         (ql:dist-version "quicklisp")))' \
+             --quit
+          {
+            echo "ultralisp=$(sed -n 1p dist-versions.txt)"
+            echo "quicklisp=$(sed -n 2p dist-versions.txt)"
+            echo "date=$(date -u +%Y-%m-%d)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Update ASDF
+        run: |
+          cd $HOME/quicklisp/local-projects/
+          git clone --depth 1 --branch 3.3.7.4 https://gitlab.common-lisp.net/asdf/asdf
+
+      - name: Build the CIEL binary
+        run: |
+          pwd
+          ls -l
+          cd $HOME/quicklisp/local-projects/
+          git clone --depth 1 https://github.com/ciel-lang/CIEL
+          cl --eval '(ql:quickload "ciel")' \
+             --eval '(ql:quickload "ciel/repl")' \
+             --eval '(asdf:make "ciel/repl")' \
+             --quit
+
+      - name: Smoke test the binary
+        continue-on-error: true
+        run: |
+          mv $HOME/quicklisp/local-projects/CIEL/ciel ./
+          echo '(format t "CIEL build OK~%")' > smoke.lisp
+          ./ciel smoke.lisp
+
+      - name: Collect libraries
+        if: runner.os == 'Linux'
+        run: |
+          mkdir ciel-libraries/
+          cp -r $HOME/common-lisp/ql-https ciel-libraries/
+          cp -r $HOME/quicklisp/quicklisp ciel-libraries/
+          mv $HOME/quicklisp/local-projects/* ciel-libraries/
+          mv $HOME/quicklisp/dists/quicklisp/software/* ciel-libraries/
+          mv $HOME/quicklisp/dists/ultralisp/software/* ciel-libraries/
+          atool -a ciel-libraries.tar.gz ciel-libraries
+
+      - name: Upload ciel libraries
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ciel-libraries.tar.gz
+          path: ciel-libraries.tar.gz
+
+      - name: Compute OS/arch for artifact naming
+        id: uname
+        run: |
+          echo "os=$(uname -s | tr '[A-Z]' '[a-z]')" >> "$GITHUB_OUTPUT"
+          echo "arch=$(uname -m)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload ciel binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ciel-${{ steps.uname.outputs.os }}-${{ steps.uname.outputs.arch }}
+          path: ciel
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly-${{ steps.dist_versions.outputs.date }}
+          name: "CIEL nightly - Ultralisp ${{ steps.dist_versions.outputs.ultralisp }} / Quicklisp ${{ steps.dist_versions.outputs.quicklisp }}"
+          body: |
+            Automated nightly build of CIEL.
+
+            - Ultralisp dist version: ${{ steps.dist_versions.outputs.ultralisp }}
+            - Quicklisp dist version: ${{ steps.dist_versions.outputs.quicklisp }}
+          files: |
+            ciel-${{ steps.uname.outputs.os }}-${{ steps.uname.outputs.arch }}
+            ciel-libraries.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
