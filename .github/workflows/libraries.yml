@@ -3,7 +3,7 @@ name: Archive CIEL libraries
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 4 * * *'   # daily at 04:00 UTC
+    - cron: '0 4 * * 1'   # every Monday at 04:00 UTC
 
 env:
   LISP: sbcl
@@ -123,10 +123,10 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: nightly-${{ steps.dist_versions.outputs.date }}
-          name: "CIEL nightly - Ultralisp ${{ steps.dist_versions.outputs.ultralisp }} / Quicklisp ${{ steps.dist_versions.outputs.quicklisp }}"
+          tag_name: weekly-${{ steps.dist_versions.outputs.date }}
+          name: "CIEL weekly - Ultralisp ${{ steps.dist_versions.outputs.ultralisp }} / Quicklisp ${{ steps.dist_versions.outputs.quicklisp }}"
           body: |
-            Automated nightly build of CIEL.
+            Automated weekly build of CIEL.
 
             - Ultralisp dist version: ${{ steps.dist_versions.outputs.ultralisp }}
             - Quicklisp dist version: ${{ steps.dist_versions.outputs.quicklisp }}
