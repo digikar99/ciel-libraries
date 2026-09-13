@@ -6,7 +6,7 @@ on:
     - cron: '0 4 * * 1'   # every Monday at 04:00 UTC
 
 env:
-  LISP: sbcl
+  LISP: sbcl_glibc223
 
 permissions:
   contents: write
