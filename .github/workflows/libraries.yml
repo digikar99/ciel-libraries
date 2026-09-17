@@ -73,21 +73,18 @@ jobs:
             echo "date=$(date -u +%Y-%m-%d)"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Update ASDF
-        run: |
-          cd $HOME/quicklisp/local-projects/
-          git clone --depth 1 --branch 3.3.7.4 https://gitlab.common-lisp.net/asdf/asdf
-
-      - name: Build the CIEL binary
+      - name: Install CIEL
         run: |
           pwd
           ls -l
           cd $HOME/quicklisp/local-projects/
           git clone --depth 1 https://github.com/ciel-lang/CIEL
-          cl --eval '(ql:quickload "ciel")' \
-             --eval '(ql:quickload "ciel/repl")' \
-             --eval '(asdf:make "ciel/repl")' \
-             --quit
+          cd CIEL
+          sudo make debian-deps
+          export LISP=cl
+          make asdf
+          make ql-deps
+          make build
 
       - name: Smoke test the binary
         continue-on-error: true
